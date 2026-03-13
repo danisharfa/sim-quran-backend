@@ -1,6 +1,6 @@
 import { IsString, MinLength, IsNotEmpty } from 'class-validator';
 
-export class LoginDto {
+export class LoginRequestDto {
   @IsString()
   @IsNotEmpty()
   @MinLength(3, { message: 'username must be at least 3 characters' })

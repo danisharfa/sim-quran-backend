@@ -6,41 +6,85 @@ import {
   Post,
   Request,
   UseGuards,
-  Body,
+  Response,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { AuthResponseDto } from './dto/auth-response.dto';
-import { RefreshResponseDto } from './dto/refresh-response.dto';
+import { ValidatedUserDto } from './dto/validated-user.dto';
+import { LoginResponseDto } from './dto/login-response.dto';
+import { Response as ExpressResponse } from 'express';
 
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(LocalAuthGuard)
   @Post('login')
-  login(
-    @Body() loginDto: LoginDto,
-    @Request() request,
-  ): Promise<AuthResponseDto> {
-    return this.authService.login(request.user);
-  }
-
+  @UseGuards(LocalAuthGuard)
   @HttpCode(HttpStatus.OK)
-  @Post('refresh')
-  refresh(@Body() refreshDto: RefreshTokenDto): Promise<RefreshResponseDto> {
-    return this.authService.refresh(refreshDto.refreshToken);
+  async login(
+    @Request() request: { user: ValidatedUserDto },
+    @Response({ passthrough: true }) response: ExpressResponse,
+  ): Promise<LoginResponseDto> {
+    const result = await this.authService.login(request.user);
+
+    response.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+    };
   }
 
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Request() request,
+    @Response({ passthrough: true }) response: ExpressResponse,
+  ) {
+    const refreshToken = request.cookies?.refreshToken;
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token missing');
+    }
+
+    const result = await this.authService.refresh(refreshToken);
+
+    response.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return {
+      accessToken: result.accessToken,
+    };
+  }
+
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
-  logout(@Request() request): Promise<void> {
-    return this.authService.logout(request.user.sub);
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(
+    @Request() request,
+    @Response({ passthrough: true }) response: ExpressResponse,
+  ): Promise<void> {
+    const refreshToken = request.cookies?.refreshToken;
+
+    if (refreshToken) {
+      await this.authService.logout(refreshToken);
+    }
+
+    response.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    });
   }
 
   @Get('me')

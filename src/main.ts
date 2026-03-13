@@ -1,11 +1,16 @@
-import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.setGlobalPrefix('api');
+
+  // Cookie parser middleware
+  app.use(cookieParser());
 
   // Security headers
   app.use(
@@ -15,9 +20,12 @@ async function bootstrap() {
   );
 
   // CORS configuration (explicit & safe)
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (!frontendUrl) throw new Error('FRONTEND_URL env var is required');
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL,
-    credentials: true, // jika pakai cookie / refresh token
+    origin: frontendUrl,
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   });
 
@@ -30,6 +38,7 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(Number(process.env.PORT) || 8080);
+  const port = process.env.PORT || 8080;
+  await app.listen(port, '0.0.0.0');
 }
-void bootstrap();
+bootstrap();
